@@ -1,14 +1,15 @@
 const express = require('express');
-const User = require('../models/user');
+const bcrypt = require('bcrypt');
+const { pool } = require('../config/db');
 
 const router = express.Router();
 
-
+// Register user
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, confirmPassword } = req.body;
-    
-
+  
+    // Validate input
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
@@ -17,18 +18,24 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Passwords do not match' });
     }
     
-
-    const existingUser = await User.findByEmail(email);
+    // Check if email already exists
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const existingUser = rows[0];
+    
     if (existingUser) {
       return res.status(400).json({ message: 'Email already exists' });
     }
     
-
-    const userId = await User.create({ name, email, password });
+    // Create user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const [result] = await pool.query(
+      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
+      [name, email, hashedPassword]
+    );
     
     res.status(201).json({ 
       message: 'User registered successfully',
-      userId
+      userId: result.insertId
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -36,24 +43,26 @@ router.post('/register', async (req, res) => {
   }
 });
 
-
+// Login user
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
-
+    // Validate input
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
     
-
-    const user = await User.findByEmail(email);
+    // Find user
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const user = rows[0];
+    
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
-
-    const isPasswordValid = await User.verifyPassword(password, user.password);
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -72,23 +81,25 @@ router.post('/login', async (req, res) => {
   }
 });
 
-
+// Forget password - verify email
 router.post('/forget-password', async (req, res) => {
   try {
     const { email } = req.body;
     
-
+    // Validate input
     if (!email) {
       return res.status(400).json({ message: 'Email is required' });
     }
     
-
-    const user = await User.findByEmail(email);
+    // Check if email exists
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const user = rows[0];
+    
     if (!user) {
       return res.status(404).json({ message: 'Email not found' });
     }
     
-
+    // Email is valid
     res.status(200).json({ 
       message: 'Email verified successfully',
       emailVerified: true
@@ -99,12 +110,12 @@ router.post('/forget-password', async (req, res) => {
   }
 });
 
-
+// Reset password after email verification
 router.post('/reset-password', async (req, res) => {
   try {
     const { email, newPassword, confirmNewPassword } = req.body;
     
-
+    // Validate input
     if (!email || !newPassword || !confirmNewPassword) {
       return res.status(400).json({ message: 'All fields are required' });
     }
@@ -113,16 +124,22 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'Passwords do not match' });
     }
     
-
-    const user = await User.findByEmail(email);
+    // Check if email exists
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const user = rows[0];
+    
     if (!user) {
       return res.status(404).json({ message: 'Email not found' });
     }
     
-
-    const updated = await User.updatePassword(email, newPassword);
+    // Update password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const [result] = await pool.query(
+      'UPDATE users SET password = ? WHERE email = ?',
+      [hashedPassword, email]
+    );
     
-    if (updated) {
+    if (result.affectedRows > 0) {
       res.status(200).json({ message: 'Password has been reset successfully' });
     } else {
       res.status(400).json({ message: 'Failed to reset password' });
