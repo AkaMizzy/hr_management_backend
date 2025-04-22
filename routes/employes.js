@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id 
       FROM employes
     `);
     res.json(rows);
@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id 
       FROM employes 
       WHERE id = ?
     `, [req.params.id]);
@@ -36,10 +36,26 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// GET employees by responsable (responsable_id)
+router.get('/responsable/:responsableId', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id 
+      FROM employes 
+      WHERE responsable_id = ?
+    `, [req.params.responsableId]);
+    
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching employees by responsable:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // POST new employee
 router.post('/', async (req, res) => {
   try {
-    const { nom, prenom, genre, date_naissance, email, adresse, telephone } = req.body;
+    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id } = req.body;
     
     // Validate required fields
     if (!nom || !prenom || !genre || !email) {
@@ -57,9 +73,17 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
+    // Validate responsable_id if provided
+    if (responsable_id) {
+      const [responsable] = await pool.query('SELECT id FROM employes WHERE id = ?', [responsable_id]);
+      if (responsable.length === 0) {
+        return res.status(400).json({ message: 'Invalid responsable ID' });
+      }
+    }
+
     const [result] = await pool.query(
-      'INSERT INTO employes (nom, prenom, genre, date_naissance, email, adresse, telephone) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [nom, prenom, genre, date_naissance, email, adresse, telephone]
+      'INSERT INTO employes (nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id || null]
     );
 
     res.status(201).json({ 
@@ -75,7 +99,7 @@ router.post('/', async (req, res) => {
 // PUT update employee
 router.put('/:id', async (req, res) => {
   try {
-    const { nom, prenom, genre, date_naissance, email, adresse, telephone } = req.body;
+    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id } = req.body;
     const employeeId = req.params.id;
 
     // Check if employee exists
@@ -100,6 +124,40 @@ router.put('/:id', async (req, res) => {
       }
     }
 
+    // Validate responsable_id if provided
+    if (responsable_id !== undefined) {
+      // Check for self-assignment as responsable
+      if (responsable_id && responsable_id.toString() === employeeId.toString()) {
+        return res.status(400).json({ message: 'Employee cannot be their own responsable' });
+      }
+
+      // Check if responsable exists
+      if (responsable_id) {
+        const [responsable] = await pool.query('SELECT id FROM employes WHERE id = ?', [responsable_id]);
+        if (responsable.length === 0) {
+          return res.status(400).json({ message: 'Invalid responsable ID' });
+        }
+      }
+
+      // Check for circular references in hierarchy
+      if (responsable_id) {
+        let currentResponsableId = responsable_id;
+        while (currentResponsableId) {
+          // If we find the employee ID in the chain, it's a circular reference
+          if (currentResponsableId.toString() === employeeId.toString()) {
+            return res.status(400).json({ message: 'Circular hierarchy reference detected' });
+          }
+          
+          // Get the responsable's responsable
+          const [responsableRow] = await pool.query('SELECT responsable_id FROM employes WHERE id = ?', [currentResponsableId]);
+          if (responsableRow.length === 0 || !responsableRow[0].responsable_id) {
+            break;
+          }
+          currentResponsableId = responsableRow[0].responsable_id;
+        }
+      }
+    }
+
     await pool.query(
       `UPDATE employes 
        SET nom = COALESCE(?, nom), 
@@ -108,9 +166,11 @@ router.put('/:id', async (req, res) => {
            date_naissance = COALESCE(?, date_naissance), 
            email = COALESCE(?, email), 
            adresse = COALESCE(?, adresse), 
-           telephone = COALESCE(?, telephone) 
+           telephone = COALESCE(?, telephone),
+           responsable_id = ? 
        WHERE id = ?`,
-      [nom, prenom, genre, date_naissance, email, adresse, telephone, employeeId]
+      [nom, prenom, genre, date_naissance, email, adresse, telephone, 
+       responsable_id !== undefined ? responsable_id : null, employeeId]
     );
 
     res.json({ message: 'Employee updated successfully' });
@@ -131,10 +191,56 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Employee not found' });
     }
 
+    // Check if any employees have this employee as their responsable
+    const [subordinates] = await pool.query('SELECT id FROM employes WHERE responsable_id = ?', [employeeId]);
+    if (subordinates.length > 0) {
+      return res.status(400).json({ 
+        message: 'Cannot delete employee with subordinates. Reassign subordinates first.',
+        subordinateCount: subordinates.length
+      });
+    }
+
     await pool.query('DELETE FROM employes WHERE id = ?', [employeeId]);
     res.json({ message: 'Employee deleted successfully' });
   } catch (error) {
     console.error('Error deleting employee:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET employee hierarchy (all subordinates recursively)
+router.get('/:id/hierarchy', async (req, res) => {
+  try {
+    const employeeId = req.params.id;
+
+    // Check if employee exists
+    const [existing] = await pool.query('SELECT id FROM employes WHERE id = ?', [employeeId]);
+    if (existing.length === 0) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    // Use recursive CTE to get the entire hierarchy
+    // This requires MySQL 8.0+
+    const [rows] = await pool.query(`
+      WITH RECURSIVE EmployeeHierarchy AS (
+        SELECT id, nom, prenom, email, responsable_id, 0 AS level
+        FROM employes
+        WHERE id = ?
+        
+        UNION ALL
+        
+        SELECT e.id, e.nom, e.prenom, e.email, e.responsable_id, eh.level + 1
+        FROM employes e
+        JOIN EmployeeHierarchy eh ON e.responsable_id = eh.id
+      )
+      SELECT id, nom, prenom, email, responsable_id, level
+      FROM EmployeeHierarchy
+      ORDER BY level, nom, prenom
+    `, [employeeId]);
+
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching employee hierarchy:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
