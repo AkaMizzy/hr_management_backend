@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
 
+
 const router = express.Router();
 
 // Register user
@@ -148,6 +149,125 @@ router.post('/reset-password', async (req, res) => {
     console.error('Reset password error:', error);
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// Google Login
+router.post('/auth/google/login', async (req, res) => {
+  try {
+    const { email, name, googleId, picture } = req.body;
+
+    // Validate input
+    if (!email || !googleId) {
+      return res.status(400).json({ message: 'Email and Google ID are required' });
+    }
+
+    // Check if user exists
+    const [rows] = await pool.query(
+      'SELECT * FROM users WHERE email = ? OR google_id = ?',
+      [email, googleId]
+    );
+    const user = rows[0];
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found. Please register first.' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        picture: user.picture
+      }
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Google Register
+router.post('/auth/google/register', async (req, res) => {
+  try {
+    const { email, name, googleId, picture } = req.body;
+
+    // Validate input
+    if (!email || !name || !googleId) {
+      return res.status(400).json({ message: 'Email, name and Google ID are required' });
+    }
+
+    // Check if user already exists
+    const [existingRows] = await pool.query(
+      'SELECT * FROM users WHERE email = ? OR google_id = ?',
+      [email, googleId]
+    );
+    
+    if (existingRows.length > 0) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    // Create new user
+    const [result] = await pool.query(
+      'INSERT INTO users (name, email, google_id, picture, auth_provider) VALUES (?, ?, ?, ?, ?)',
+      [name, email, googleId, picture, 'google']
+    );
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: result.insertId, email },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.status(201).json({
+      message: 'User registered successfully',
+      token,
+      user: {
+        id: result.insertId,
+        name,
+        email,
+        picture
+      }
+    });
+  } catch (error) {
+    console.error('Google registration error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Routes de callback Google
+router.get('/auth/google/callback', async (req, res) => {
+  const { code } = req.query;
+  // Échangez le code contre un token d'accès
+  // Récupérez les informations de l'utilisateur
+  // Créez ou mettez à jour l'utilisateur dans votre base de données
+  // Générez un JWT et renvoyez-le
+});
+
+router.get('/auth/google/register/callback', async (req, res) => {
+  // Similaire au callback de connexion, mais pour l'inscription
+});
+
+// Routes de callback Facebook
+router.get('/auth/facebook/callback', async (req, res) => {
+  const { code } = req.query;
+  // Échangez le code contre un token d'accès
+  // Récupérez les informations de l'utilisateur
+  // Créez ou mettez à jour l'utilisateur dans votre base de données
+  // Générez un JWT et renvoyez-le
+});
+
+router.get('/auth/facebook/register/callback', async (req, res) => {
+  // Similaire au callback de connexion, mais pour l'inscription
 });
 
 module.exports = router; 
