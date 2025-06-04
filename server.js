@@ -8,6 +8,7 @@ const entitesRoutes = require('./routes/entites');
 const employesRoutes = require('./routes/employes');
 const documentsRoutes = require('./routes/documents');
 const infoEmployesRoutes = require('./routes/info-employes');
+const employeInfoRoutes = require('./routes/employe-info');
 const { testConnection } = require('./config/db');
 
 dotenv.config();
@@ -19,15 +20,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Test database connection
+
 testConnection();
 
 // API routes
-app.use('/api', authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/entites', entitesRoutes);
 app.use('/api/employes', employesRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/info-employes', infoEmployesRoutes);
+app.use('/api/employe-info', employeInfoRoutes);
 
 // Serve static files from uploads directory for document viewing
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -60,7 +62,7 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 }); 
 

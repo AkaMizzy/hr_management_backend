@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
       FROM employes
     `);
     res.json(rows);
@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id
       FROM employes 
       WHERE id = ?
     `, [req.params.id]);
@@ -40,7 +40,7 @@ router.get('/:id', async (req, res) => {
 router.get('/responsable/:responsableId', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
       FROM employes 
       WHERE responsable_id = ?
     `, [req.params.responsableId]);
@@ -52,10 +52,42 @@ router.get('/responsable/:responsableId', async (req, res) => {
   }
 });
 
+// GET employees by entity (entite_id)
+router.get('/entity/:entityId', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
+      FROM employes 
+      WHERE entite_id = ?
+    `, [req.params.entityId]);
+    
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching employees by entity:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET employees without entity
+router.get('/without-entity', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
+      FROM employes 
+      WHERE entite_id IS NULL
+    `);
+    
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching employees without entity:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // POST new employee
 router.post('/', async (req, res) => {
   try {
-    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id } = req.body;
+    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id } = req.body;
     
     // Validate required fields
     if (!nom || !prenom || !genre || !email) {
@@ -81,9 +113,17 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // Validate entite_id if provided
+    if (entite_id) {
+      const [entite] = await pool.query('SELECT id FROM entites WHERE id = ?', [entite_id]);
+      if (entite.length === 0) {
+        return res.status(400).json({ message: 'Invalid entite ID' });
+      }
+    }
+
     const [result] = await pool.query(
-      'INSERT INTO employes (nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id || null]
+      'INSERT INTO employes (nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id || null, entite_id || null]
     );
 
     res.status(201).json({ 
@@ -99,7 +139,7 @@ router.post('/', async (req, res) => {
 // PUT update employee
 router.put('/:id', async (req, res) => {
   try {
-    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id } = req.body;
+    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id } = req.body;
     const employeeId = req.params.id;
 
     // Check if employee exists
@@ -158,6 +198,16 @@ router.put('/:id', async (req, res) => {
       }
     }
 
+    // Validate entite_id if provided
+    if (entite_id !== undefined) {
+      if (entite_id !== null) {
+        const [entite] = await pool.query('SELECT id FROM entites WHERE id = ?', [entite_id]);
+        if (entite.length === 0) {
+          return res.status(400).json({ message: 'Invalid entite ID' });
+        }
+      }
+    }
+
     await pool.query(
       `UPDATE employes 
        SET nom = COALESCE(?, nom), 
@@ -167,10 +217,13 @@ router.put('/:id', async (req, res) => {
            email = COALESCE(?, email), 
            adresse = COALESCE(?, adresse), 
            telephone = COALESCE(?, telephone),
-           responsable_id = ? 
+           responsable_id = ?,
+           entite_id = ?
        WHERE id = ?`,
       [nom, prenom, genre, date_naissance, email, adresse, telephone, 
-       responsable_id !== undefined ? responsable_id : null, employeeId]
+       responsable_id !== undefined ? responsable_id : null, 
+       entite_id !== undefined ? entite_id : null, 
+       employeeId]
     );
 
     res.json({ message: 'Employee updated successfully' });
@@ -223,17 +276,17 @@ router.get('/:id/hierarchy', async (req, res) => {
     // This requires MySQL 8.0+
     const [rows] = await pool.query(`
       WITH RECURSIVE EmployeeHierarchy AS (
-        SELECT id, nom, prenom, email, responsable_id, 0 AS level
+        SELECT id, nom, prenom, email, responsable_id, entite_id, 0 AS level
         FROM employes
         WHERE id = ?
         
         UNION ALL
         
-        SELECT e.id, e.nom, e.prenom, e.email, e.responsable_id, eh.level + 1
+        SELECT e.id, e.nom, e.prenom, e.email, e.responsable_id, e.entite_id, eh.level + 1
         FROM employes e
         JOIN EmployeeHierarchy eh ON e.responsable_id = eh.id
       )
-      SELECT id, nom, prenom, email, responsable_id, level
+      SELECT id, nom, prenom, email, responsable_id, entite_id, level
       FROM EmployeeHierarchy
       ORDER BY level, nom, prenom
     `, [employeeId]);
