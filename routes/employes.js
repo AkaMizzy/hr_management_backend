@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id 
       FROM employes
     `);
     res.json(rows);
@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id
       FROM employes 
       WHERE id = ?
     `, [req.params.id]);
@@ -36,13 +36,13 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// GET employees by responsable (responsable_id)
+// GET employees by responsable (manager_id)
 router.get('/responsable/:responsableId', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id 
       FROM employes 
-      WHERE responsable_id = ?
+      WHERE manager_id = ?
     `, [req.params.responsableId]);
     
     res.json(rows);
@@ -56,7 +56,7 @@ router.get('/responsable/:responsableId', async (req, res) => {
 router.get('/entity/:entityId', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id 
       FROM employes 
       WHERE entite_id = ?
     `, [req.params.entityId]);
@@ -72,7 +72,7 @@ router.get('/entity/:entityId', async (req, res) => {
 router.get('/without-entity', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id 
+      SELECT id, nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id 
       FROM employes 
       WHERE entite_id IS NULL
     `);
@@ -87,7 +87,7 @@ router.get('/without-entity', async (req, res) => {
 // POST new employee
 router.post('/', async (req, res) => {
   try {
-    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id } = req.body;
+    const { nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id } = req.body;
     
     // Validate required fields
     if (!nom || !prenom || !genre || !email) {
@@ -105,9 +105,9 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
-    // Validate responsable_id if provided
-    if (responsable_id) {
-      const [responsable] = await pool.query('SELECT id FROM employes WHERE id = ?', [responsable_id]);
+    // Validate manager_id if provided
+    if (manager_id) {
+      const [responsable] = await pool.query('SELECT id FROM employes WHERE id = ?', [manager_id]);
       if (responsable.length === 0) {
         return res.status(400).json({ message: 'Invalid responsable ID' });
       }
@@ -122,8 +122,8 @@ router.post('/', async (req, res) => {
     }
 
     const [result] = await pool.query(
-      'INSERT INTO employes (nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id || null, entite_id || null]
+      'INSERT INTO employes (nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id || null, entite_id || null]
     );
 
     res.status(201).json({ 
@@ -139,7 +139,7 @@ router.post('/', async (req, res) => {
 // PUT update employee
 router.put('/:id', async (req, res) => {
   try {
-    const { nom, prenom, genre, date_naissance, email, adresse, telephone, responsable_id, entite_id } = req.body;
+    const { nom, prenom, genre, date_naissance, email, adresse, telephone, manager_id, entite_id } = req.body;
     const employeeId = req.params.id;
 
     // Check if employee exists
@@ -164,24 +164,24 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    // Validate responsable_id if provided
-    if (responsable_id !== undefined) {
+    // Validate manager_id if provided
+    if (manager_id !== undefined) {
       // Check for self-assignment as responsable
-      if (responsable_id && responsable_id.toString() === employeeId.toString()) {
+      if (manager_id && manager_id.toString() === employeeId.toString()) {
         return res.status(400).json({ message: 'Employee cannot be their own responsable' });
       }
 
       // Check if responsable exists
-      if (responsable_id) {
-        const [responsable] = await pool.query('SELECT id FROM employes WHERE id = ?', [responsable_id]);
+      if (manager_id) {
+        const [responsable] = await pool.query('SELECT id FROM employes WHERE id = ?', [manager_id]);
         if (responsable.length === 0) {
           return res.status(400).json({ message: 'Invalid responsable ID' });
         }
       }
 
       // Check for circular references in hierarchy
-      if (responsable_id) {
-        let currentResponsableId = responsable_id;
+      if (manager_id) {
+        let currentResponsableId = manager_id;
         while (currentResponsableId) {
           // If we find the employee ID in the chain, it's a circular reference
           if (currentResponsableId.toString() === employeeId.toString()) {
@@ -189,11 +189,11 @@ router.put('/:id', async (req, res) => {
           }
           
           // Get the responsable's responsable
-          const [responsableRow] = await pool.query('SELECT responsable_id FROM employes WHERE id = ?', [currentResponsableId]);
-          if (responsableRow.length === 0 || !responsableRow[0].responsable_id) {
+          const [responsableRow] = await pool.query('SELECT manager_id FROM employes WHERE id = ?', [currentResponsableId]);
+          if (responsableRow.length === 0 || !responsableRow[0].manager_id) {
             break;
           }
-          currentResponsableId = responsableRow[0].responsable_id;
+          currentResponsableId = responsableRow[0].manager_id;
         }
       }
     }
@@ -217,11 +217,11 @@ router.put('/:id', async (req, res) => {
            email = COALESCE(?, email), 
            adresse = COALESCE(?, adresse), 
            telephone = COALESCE(?, telephone),
-           responsable_id = ?,
+           manager_id = ?,
            entite_id = ?
        WHERE id = ?`,
       [nom, prenom, genre, date_naissance, email, adresse, telephone, 
-       responsable_id !== undefined ? responsable_id : null, 
+       manager_id !== undefined ? manager_id : null, 
        entite_id !== undefined ? entite_id : null, 
        employeeId]
     );
@@ -245,7 +245,7 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Check if any employees have this employee as their responsable
-    const [subordinates] = await pool.query('SELECT id FROM employes WHERE responsable_id = ?', [employeeId]);
+    const [subordinates] = await pool.query('SELECT id FROM employes WHERE manager_id = ?', [employeeId]);
     if (subordinates.length > 0) {
       return res.status(400).json({ 
         message: 'Cannot delete employee with subordinates. Reassign subordinates first.',
@@ -276,17 +276,17 @@ router.get('/:id/hierarchy', async (req, res) => {
     // This requires MySQL 8.0+
     const [rows] = await pool.query(`
       WITH RECURSIVE EmployeeHierarchy AS (
-        SELECT id, nom, prenom, email, responsable_id, entite_id, 0 AS level
+        SELECT id, nom, prenom, email, manager_id, entite_id, 0 AS level
         FROM employes
         WHERE id = ?
         
         UNION ALL
         
-        SELECT e.id, e.nom, e.prenom, e.email, e.responsable_id, e.entite_id, eh.level + 1
+        SELECT e.id, e.nom, e.prenom, e.email, e.manager_id, e.entite_id, eh.level + 1
         FROM employes e
-        JOIN EmployeeHierarchy eh ON e.responsable_id = eh.id
+        JOIN EmployeeHierarchy eh ON e.manager_id = eh.id
       )
-      SELECT id, nom, prenom, email, responsable_id, entite_id, level
+      SELECT id, nom, prenom, email, manager_id, entite_id, level
       FROM EmployeeHierarchy
       ORDER BY level, nom, prenom
     `, [employeeId]);

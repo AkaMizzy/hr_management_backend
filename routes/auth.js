@@ -54,8 +54,11 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
     
-    // Find user
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    // Find user with role and employe_id
+    const [rows] = await pool.query(
+      'SELECT users.id, users.name, users.email, users.password, users.role, users.employe_id FROM users WHERE email = ?',
+      [email]
+    );
     const user = rows[0];
     
     if (!user) {
@@ -67,13 +70,27 @@ router.post('/login', async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    // If user is an employee, get additional employee info
+    let employeInfo = null;
+    if (user.role === 'employe' && user.employe_id) {
+      const [employeRows] = await pool.query(
+        'SELECT id, nom, prenom, manager_id FROM employes WHERE id = ?',
+        [user.employe_id]
+      );
+      employeInfo = employeRows[0];
+    }
     
+    // Return user data including role and employe_id
     res.status(200).json({
       message: 'Login successful',
       user: {
         id: user.id,
         name: user.name,
-        email: user.email
+        email: user.email,
+        role: user.role,
+        employe_id: user.employe_id,
+        employe_info: employeInfo
       }
     });
   } catch (error) {
