@@ -6,43 +6,52 @@ const { pool } = require('../config/db');
 const router = express.Router();
 
 // Register user
-router.post('/register', async (req, res) => {
-  try {
-    const { name, email, password, confirmPassword } = req.body;
+// router.post('/register', async (req, res) => {
+//   try {
+//     const { name, email, password, confirmPassword, role } = req.body;
   
-    // Validate input
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
+//     // Validate input
+//     if (!name || !email || !password) {
+//       return res.status(400).json({ message: 'All fields are required' });
+//     }
     
-    if (password !== confirmPassword) {
-      return res.status(400).json({ message: 'Passwords do not match' });
-    }
+//     if (password !== confirmPassword) {
+//       return res.status(400).json({ message: 'Passwords do not match' });
+//     }
     
-    // Check if email already exists
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    const existingUser = rows[0];
+//     // Check if email already exists
+//     const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+//     const existingUser = rows[0];
     
-    if (existingUser) {
-      return res.status(400).json({ message: 'Email already exists' });
-    }
+//     if (existingUser) {
+//       return res.status(400).json({ message: 'Email already exists' });
+//     }
     
-    // Create user
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const [result] = await pool.query(
-      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
-      [name, email, hashedPassword]
-    );
+//     // Create user with role if provided (default to 'employe')
+//     const hashedPassword = await bcrypt.hash(password, 10);
+//     const userRole = role || 'employe';
+
+//     // Validate role is one of the allowed values
+//     const allowedRoles = ['employe', 'manager', 'responsable_rh'];
+//     if (!allowedRoles.includes(userRole)) {
+//       return res.status(400).json({ message: 'Invalid role specified' });
+//     }
+
+//     const [result] = await pool.query(
+//       'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
+//       [name, email, hashedPassword, userRole]
+//     );
     
-    res.status(201).json({ 
-      message: 'User registered successfully',
-      userId: result.insertId
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+//     res.status(201).json({ 
+//       message: 'User registered successfully',
+//       userId: result.insertId,
+//       role: userRole
+//     });
+//   } catch (error) {
+//     console.error('Registration error:', error);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// });
 
 // Login user
 router.post('/login', async (req, res) => {
@@ -80,6 +89,16 @@ router.post('/login', async (req, res) => {
       );
       employeInfo = employeRows[0];
     }
+    // If user is a manager, get their manager ID
+    else if (user.role === 'manager' && user.employe_id) {
+      const [managerRows] = await pool.query(
+        'SELECT id FROM employes WHERE id = ?',
+        [user.employe_id]
+      );
+      if (managerRows.length > 0) {
+        employeInfo = { id: managerRows[0].id };
+      }
+    }
     
     // Return user data including role and employe_id
     res.status(200).json({
@@ -98,6 +117,9 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Create user account (for Responsable RH)
+// This route has been moved to the users.js route
 
 // Forget password - verify email
 router.post('/forget-password', async (req, res) => {

@@ -43,6 +43,44 @@ Simple backend API for HR Management System, providing basic authentication func
   - `POST /api/reset-password`
   - Body: `{ email, newPassword, confirmNewPassword }`
 
+### Leave Requests (Congé)
+
+The Leave Request feature allows employees to request time off, which must be approved by their manager and HR.
+
+#### API Endpoints
+
+- **Create Leave Request**
+  - `POST /api/conges`
+  - Body: `{ date_debut, date_fin, nombre_jours, id_employe }`
+
+- **Get Employee Leave Requests**
+  - `GET /api/conges/employee/:employeId`
+
+- **Get Manager Leave Requests**
+  - `GET /api/conges/manager/:managerId`
+
+- **Get HR Leave Requests**
+  - `GET /api/conges/hr`
+
+- **Get Specific Leave Request**
+  - `GET /api/conges/:id`
+
+- **Manager Validation**
+  - `POST /api/conges/:id/validate/manager`
+  - Body: `{ is_approved, manager_id, annulable, justifier (if rejected) }`
+
+- **HR Validation**
+  - `POST /api/conges/:id/validate/hr`
+  - Body: `{ is_approved, justifier (if rejected) }`
+
+- **Cancel Leave Request**
+  - `POST /api/conges/:id/cancel`
+  - Body: `{ employee_id }`
+
+#### Database Tables
+- `demande_conge` - Stores leave request information
+- `conge_validations` - Records validation decisions for each leave request
+
 ## Circles Feature
 
 The Circles feature allows users to create and join interest groups within the company.

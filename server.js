@@ -10,6 +10,10 @@ const documentsRoutes = require('./routes/documents');
 const infoEmployesRoutes = require('./routes/info-employes');
 const employeInfoRoutes = require('./routes/employe-info');
 const tachesRoutes = require('./routes/taches');
+const usersRoutes = require('./routes/users');
+const attestationsRoutes = require('./routes/attestations');
+const absencesRoutes = require('./routes/absences');
+const congesRoutes = require('./routes/conges');
 const { testConnection } = require('./config/db');
 
 dotenv.config();
@@ -32,6 +36,10 @@ app.use('/api/documents', documentsRoutes);
 app.use('/api/info-employes', infoEmployesRoutes);
 app.use('/api/employe-info', employeInfoRoutes);
 app.use('/api/taches', tachesRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/attestations', attestationsRoutes);
+app.use('/api/absences', absencesRoutes);
+app.use('/api/conges', congesRoutes);
 
 // Serve static files from uploads directory for document viewing
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
