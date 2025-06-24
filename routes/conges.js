@@ -5,17 +5,17 @@ const { pool } = require('../config/db');
 // Create a new leave (congé) request (Employee)
 router.post('/', async (req, res) => {
   try {
-    const { date_debut, date_fin, nombre_jours, id_employe } = req.body;
+    const { date_debut, date_fin, nombre_jours, type_id, id_employe } = req.body;
     
     // Validate required fields
-    if (!date_debut || !date_fin || !nombre_jours || !id_employe) {
-      return res.status(400).json({ message: 'Start date, end date, number of days, and employee ID are required' });
+    if (!date_debut || !date_fin || !nombre_jours || !type_id || !id_employe) {
+      return res.status(400).json({ message: 'Start date, end date, number of days, leave type, and employee ID are required' });
     }
     
     // Insert new leave request
     const [result] = await pool.query(
-      'INSERT INTO demande_conge (date_debut, date_fin, nombre_jours, status, id_employe) VALUES (?, ?, ?, ?, ?)',
-      [date_debut, date_fin, nombre_jours, 'pending', id_employe]
+      'INSERT INTO demande_conge (date_debut, date_fin, nombre_jours, type_id, status, id_employe) VALUES (?, ?, ?, ?, ?, ?)',
+      [date_debut, date_fin, nombre_jours, type_id, 'pending', id_employe]
     );
     
     res.status(201).json({
@@ -35,6 +35,7 @@ router.get('/employee/:employeId', async (req, res) => {
     
     const [conges] = await pool.query(
       `SELECT c.*, 
+              t.intitule as type_intitule,
               (SELECT JSON_OBJECT('validator_role', cv.validator_role, 
                                  'is_approved', cv.is_approved, 
                                  'justifier', cv.justifier, 
@@ -48,6 +49,7 @@ router.get('/employee/:employeId', async (req, res) => {
                FROM conge_validations cv 
                WHERE cv.id_demande_conge = c.id AND cv.validator_role = 'responsable_rh') as hr_validation
        FROM demande_conge c
+       JOIN type_conge t ON c.type_id = t.id
        WHERE c.id_employe = ?
        ORDER BY c.date_debut DESC`,
       [employeId]
@@ -96,6 +98,7 @@ router.get('/manager/:managerId', async (req, res) => {
     // Get leave requests from employees under this manager that are pending or have been validated by the manager
     const [conges] = await pool.query(
       `SELECT c.*, 
+              t.intitule as type_intitule,
               e.nom as employe_nom, 
               e.prenom as employe_prenom,
               (SELECT JSON_OBJECT('validator_role', cv.validator_role, 
@@ -106,6 +109,7 @@ router.get('/manager/:managerId', async (req, res) => {
                WHERE cv.id_demande_conge = c.id AND cv.validator_role = 'manager') as manager_validation
        FROM demande_conge c
        JOIN employes e ON c.id_employe = e.id
+       JOIN type_conge t ON c.type_id = t.id
        WHERE e.manager_id = ?
        ORDER BY c.date_debut DESC`,
       [managerId]
@@ -141,6 +145,7 @@ router.get('/hr', async (req, res) => {
     // Get leave requests that have been approved by managers but not yet by HR
     const [conges] = await pool.query(
       `SELECT c.*, 
+              t.intitule as type_intitule,
               e.nom as employe_nom, 
               e.prenom as employe_prenom,
               (SELECT JSON_OBJECT('validator_role', cv.validator_role, 
@@ -157,6 +162,7 @@ router.get('/hr', async (req, res) => {
                WHERE cv.id_demande_conge = c.id AND cv.validator_role = 'responsable_rh') as hr_validation
        FROM demande_conge c
        JOIN employes e ON c.id_employe = e.id
+       JOIN type_conge t ON c.type_id = t.id
        WHERE EXISTS (SELECT 1 FROM conge_validations cv 
                     WHERE cv.id_demande_conge = c.id 
                     AND cv.validator_role = 'manager' 
@@ -206,6 +212,7 @@ router.get('/:id', async (req, res) => {
     
     const [conges] = await pool.query(
       `SELECT c.*, 
+              t.intitule as type_intitule,
               e.nom as employe_nom, 
               e.prenom as employe_prenom,
               (SELECT JSON_ARRAYAGG(
@@ -218,6 +225,7 @@ router.get('/:id', async (req, res) => {
                WHERE cv.id_demande_conge = c.id) as validations
        FROM demande_conge c
        JOIN employes e ON c.id_employe = e.id
+       JOIN type_conge t ON c.type_id = t.id
        WHERE c.id = ?`,
       [id]
     );
@@ -244,6 +252,17 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching leave request details:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get all leave types
+router.get('/types/all', async (req, res) => {
+  try {
+    const [types] = await pool.query('SELECT * FROM type_conge ORDER BY intitule');
+    res.json(types);
+  } catch (error) {
+    console.error('Error fetching leave types:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -5,17 +5,17 @@ const { pool } = require('../config/db');
 // Create a new attestation request (Employee)
 router.post('/', async (req, res) => {
   try {
-    const { intitule, description, employe_id } = req.body;
+    const { type_id, description, employe_id } = req.body;
     
     // Validate required fields
-    if (!intitule || !employe_id) {
-      return res.status(400).json({ message: 'Title and employee ID are required' });
+    if (!type_id || !employe_id) {
+      return res.status(400).json({ message: 'Attestation type and employee ID are required' });
     }
     
     // Insert new attestation request
     const [result] = await pool.query(
-      'INSERT INTO demande_attestation (intitule, description, employe_id, status) VALUES (?, ?, ?, ?)',
-      [intitule, description || null, employe_id, 'pending']
+      'INSERT INTO demande_attestation (type_id, description, employe_id, status) VALUES (?, ?, ?, ?)',
+      [type_id, description || null, employe_id, 'pending']
     );
     
     res.status(201).json({
@@ -35,6 +35,7 @@ router.get('/employee/:employeId', async (req, res) => {
     
     const [attestations] = await pool.query(
       `SELECT a.*, 
+              t.intitule as type_intitule,
               (SELECT JSON_OBJECT('validator_role', av.validator_role, 
                                  'is_approved', av.is_approved, 
                                  'justification', av.justification, 
@@ -48,6 +49,7 @@ router.get('/employee/:employeId', async (req, res) => {
                FROM attestation_validations av 
                WHERE av.attestation_id = a.id AND av.validator_role = 'responsable_rh') as hr_validation
        FROM demande_attestation a
+       JOIN type_attestation t ON a.type_id = t.id
        WHERE a.employe_id = ?
        ORDER BY a.date_demande DESC`,
       [employeId]
@@ -96,6 +98,7 @@ router.get('/manager/:managerId', async (req, res) => {
     // Get attestations from employees under this manager that are pending or have been validated by the manager
     const [attestations] = await pool.query(
       `SELECT a.*, 
+              t.intitule as type_intitule,
               e.nom as employe_nom, 
               e.prenom as employe_prenom,
               (SELECT JSON_OBJECT('validator_role', av.validator_role, 
@@ -106,6 +109,7 @@ router.get('/manager/:managerId', async (req, res) => {
                WHERE av.attestation_id = a.id AND av.validator_role = 'manager') as manager_validation
        FROM demande_attestation a
        JOIN employes e ON a.employe_id = e.id
+       JOIN type_attestation t ON a.type_id = t.id
        WHERE e.manager_id = ?
        ORDER BY a.date_demande DESC`,
       [managerId]
@@ -141,6 +145,7 @@ router.get('/hr', async (req, res) => {
     // Get attestations that have been approved by managers but not yet by HR
     const [attestations] = await pool.query(
       `SELECT a.*, 
+              t.intitule as type_intitule,
               e.nom as employe_nom, 
               e.prenom as employe_prenom,
               (SELECT JSON_OBJECT('validator_role', av.validator_role, 
@@ -157,6 +162,7 @@ router.get('/hr', async (req, res) => {
                WHERE av.attestation_id = a.id AND av.validator_role = 'responsable_rh') as hr_validation
        FROM demande_attestation a
        JOIN employes e ON a.employe_id = e.id
+       JOIN type_attestation t ON a.type_id = t.id
        WHERE EXISTS (SELECT 1 FROM attestation_validations av 
                     WHERE av.attestation_id = a.id 
                     AND av.validator_role = 'manager' 
@@ -206,6 +212,7 @@ router.get('/:id', async (req, res) => {
     
     const [attestations] = await pool.query(
       `SELECT a.*, 
+              t.intitule as type_intitule,
               e.nom as employe_nom, 
               e.prenom as employe_prenom,
               (SELECT JSON_ARRAYAGG(
@@ -218,6 +225,7 @@ router.get('/:id', async (req, res) => {
                WHERE av.attestation_id = a.id) as validations
        FROM demande_attestation a
        JOIN employes e ON a.employe_id = e.id
+       JOIN type_attestation t ON a.type_id = t.id
        WHERE a.id = ?`,
       [id]
     );
@@ -244,6 +252,17 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching attestation details:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get all attestation types
+router.get('/types/all', async (req, res) => {
+  try {
+    const [types] = await pool.query('SELECT * FROM type_attestation ORDER BY intitule');
+    res.json(types);
+  } catch (error) {
+    console.error('Error fetching attestation types:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -14,6 +14,7 @@ const usersRoutes = require('./routes/users');
 const attestationsRoutes = require('./routes/attestations');
 const absencesRoutes = require('./routes/absences');
 const congesRoutes = require('./routes/conges');
+const noteFraisRoutes = require('./routes/note_frais');
 const { testConnection } = require('./config/db');
 
 dotenv.config();
@@ -40,6 +41,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/attestations', attestationsRoutes);
 app.use('/api/absences', absencesRoutes);
 app.use('/api/conges', congesRoutes);
+app.use('/api/note-frais', noteFraisRoutes);
 
 // Serve static files from uploads directory for document viewing
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
