@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/db');
+const PDFDocument = require('pdfkit');
+const fs = require('fs-extra');
+const path = require('path');
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, '../uploads/attestations');
+fs.ensureDirSync(uploadsDir);
 
 // Create a new attestation request (Employee)
 router.post('/', async (req, res) => {
@@ -443,5 +450,226 @@ router.post('/:id/validate/hr', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Generate PDF for an approved attestation (HR only)
+router.post('/:id/generate-pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Verify the attestation exists and is approved by both manager and HR
+    const [attestations] = await pool.query(
+      `SELECT a.*, 
+              t.intitule as type_intitule,
+              e.nom as employe_nom, 
+              e.prenom as employe_prenom,
+              e.email as employe_email,
+              ent.tituler as entite_nom,
+              ent.id as entite_id,
+              (SELECT COUNT(*) FROM attestation_validations 
+               WHERE attestation_id = a.id 
+               AND validator_role = 'manager' 
+               AND is_approved = true) as manager_approved,
+              (SELECT COUNT(*) FROM attestation_validations 
+               WHERE attestation_id = a.id 
+               AND validator_role = 'responsable_rh' 
+               AND is_approved = true) as hr_approved
+       FROM demande_attestation a
+       JOIN employes e ON a.employe_id = e.id
+       JOIN type_attestation t ON a.type_id = t.id
+       LEFT JOIN entites ent ON e.entite_id = ent.id
+       WHERE a.id = ?`,
+      [id]
+    );
+    
+    if (attestations.length === 0) {
+      return res.status(404).json({ message: 'Attestation request not found' });
+    }
+    
+    const attestation = attestations[0];
+    
+    // Check if both manager and HR have approved
+    if (attestation.manager_approved === 0 || attestation.hr_approved === 0) {
+      return res.status(400).json({ 
+        message: 'This attestation has not been fully approved by both manager and HR' 
+      });
+    }
+    
+    // Check if PDF already exists for this attestation
+    const [existingDocs] = await pool.query(
+      'SELECT * FROM attestation_documents WHERE id_attestation = ?',
+      [id]
+    );
+    
+    let filePath;
+    let documentId;
+    
+    if (existingDocs.length > 0) {
+      // PDF already exists, return existing info
+      filePath = existingDocs[0].file_path;
+      documentId = existingDocs[0].id;
+    } else {
+      // Generate a new PDF
+      const fileName = `attestation_${id}_${Date.now()}.pdf`;
+      filePath = path.join('uploads/attestations', fileName);
+      const fullPath = path.join(__dirname, '..', filePath);
+      
+      // Generate PDF content
+      await generateAttestationPDF(attestation, fullPath);
+      
+      // Insert record into attestation_documents table
+      const [result] = await pool.query(
+        'INSERT INTO attestation_documents (id_attestation, file_path) VALUES (?, ?)',
+        [id, filePath]
+      );
+      
+      documentId = result.insertId;
+    }
+    
+    res.json({
+      message: 'PDF attestation generated successfully',
+      document_id: documentId,
+      file_path: filePath
+    });
+  } catch (error) {
+    console.error('Error generating attestation PDF:', error);
+    res.status(500).json({ message: 'Server error generating PDF' });
+  }
+});
+
+// Get PDF for an attestation
+router.get('/:id/pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Find the document record
+    const [documents] = await pool.query(
+      'SELECT * FROM attestation_documents WHERE id_attestation = ?',
+      [id]
+    );
+    
+    if (documents.length === 0) {
+      return res.status(404).json({ message: 'No PDF found for this attestation' });
+    }
+    
+    const document = documents[0];
+    const filePath = path.join(__dirname, '..', document.file_path);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'PDF file not found on server' });
+    }
+    
+    // Send the file
+    res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error retrieving attestation PDF:', error);
+    res.status(500).json({ message: 'Server error retrieving PDF' });
+  }
+});
+
+// Function to generate the PDF
+async function generateAttestationPDF(attestation, outputPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Create a new PDF document
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 50
+      });
+      
+      // Pipe the PDF to a file
+      const stream = fs.createWriteStream(outputPath);
+      doc.pipe(stream);
+      
+      // Add company logo or header
+      doc.fontSize(20)
+         .font('Helvetica-Bold')
+         .text('MuntadaaCom', { align: 'center' });
+      
+      doc.moveDown();
+      doc.fontSize(18)
+         .font('Helvetica-Bold')
+         .text('ATTESTATION', { align: 'center' });
+      
+      doc.moveDown(2);
+      
+      // Current date
+      const currentDate = new Date().toLocaleDateString('fr-FR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      
+      doc.fontSize(12)
+         .font('Helvetica')
+         .text(`Fait le ${currentDate}`, { align: 'right' });
+      
+      doc.moveDown(3);
+      
+      // Full employee name
+      const fullName = `${attestation.employe_prenom} ${attestation.employe_nom}`;
+      
+      // Department info
+      const departmentInfo = attestation.entite_nom ? 
+        `travaille dans le département ${attestation.entite_nom}` : 
+        'travaille';
+      
+      // Attestation content - new format
+      doc.fontSize(12)
+         .font('Helvetica')
+         .text(`Nous soussignés, MuntadaaCom, attestons par la présente que M./Mme ${fullName} est employé(e) et ${departmentInfo} au sein de notre société.`, {
+           align: 'left',
+           paragraphGap: 10,
+           lineGap: 4
+         });
+      
+      doc.moveDown();
+      
+      doc.text(`Cette attestation concerne : ${attestation.type_intitule} et est délivrée à la demande de l'intéressé(e) pour servir et valoir ce que de droit.`, {
+        align: 'left',
+        paragraphGap: 10,
+        lineGap: 4
+      });
+      
+      doc.moveDown(2);
+      
+      doc.text(`Nous restons à disposition pour toute information complémentaire.`, {
+        align: 'left',
+        paragraphGap: 10,
+        lineGap: 4
+      });
+      
+      doc.moveDown(4);
+      
+      // Signature area
+      doc.fontSize(12)
+         .text('Signature du responsable RH:', { align: 'right' });
+      
+      doc.moveDown(2);
+      doc.text('_______________________', { align: 'right' });
+      
+      doc.moveDown(2);
+      
+      // Footer
+      doc.fontSize(10)
+         .font('Helvetica-Oblique')
+         .text('Ce document est généré automatiquement et ne nécessite pas de signature manuscrite.', { align: 'center' });
+      
+      // Finalize the PDF
+      doc.end();
+      
+      // Handle stream events
+      stream.on('finish', () => {
+        resolve();
+      });
+      
+      stream.on('error', (err) => {
+        reject(err);
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
 
 module.exports = router; 

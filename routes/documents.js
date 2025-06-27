@@ -51,6 +51,34 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// GET all documents from all employees
+router.get('/', async (req, res) => {
+  try {
+    // Get all documents from the database
+    const [documents] = await pool.query(`
+      SELECT d.id, d.employe_id, d.nom_fichier, d.chemin_fichier, d.type_fichier, d.description, d.date_upload,
+             e.nom as employe_nom, e.prenom as employe_prenom
+      FROM documents d
+      JOIN employes e ON d.employe_id = e.id
+      ORDER BY d.date_upload DESC
+    `);
+    
+    // Map filenames to include full path and make paths relative for frontend
+    const documentsWithPaths = documents.map(doc => {
+      return {
+        ...doc,
+        // Create a web-accessible path from physical path
+        file_url: `/uploads/${doc.employe_id}/${path.basename(doc.chemin_fichier)}`
+      };
+    });
+    
+    res.json(documentsWithPaths);
+  } catch (error) {
+    console.error('Error fetching all documents:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
 // GET all documents for an employee
 router.get('/:employeId', async (req, res) => {
   try {
