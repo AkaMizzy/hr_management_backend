@@ -212,6 +212,80 @@ router.get('/hr', async (req, res) => {
   }
 });
 
+// Get all attestation types
+router.get('/types/all', async (req, res) => {
+  try {
+    const [types] = await pool.query('SELECT * FROM type_attestation ORDER BY intitule');
+    res.json(types);
+  } catch (error) {
+    console.error('Error fetching attestation types:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get all attestation requests (RH only)
+router.get('/all', async (req, res) => {
+  try {
+    // Get all attestations with employee and type information
+    const [attestations] = await pool.query(
+      `SELECT a.*, 
+              t.intitule as type_intitule,
+              e.nom as employe_nom, 
+              e.prenom as employe_prenom,
+              e.email as employe_email,
+              (SELECT JSON_OBJECT('validator_role', av.validator_role, 
+                                 'is_approved', av.is_approved, 
+                                 'justification', av.justification, 
+                                 'date_validation', av.date_validation)
+               FROM attestation_validations av 
+               WHERE av.attestation_id = a.id AND av.validator_role = 'manager') as manager_validation,
+              (SELECT JSON_OBJECT('validator_role', av.validator_role, 
+                                 'is_approved', av.is_approved, 
+                                 'justification', av.justification, 
+                                 'date_validation', av.date_validation)
+               FROM attestation_validations av 
+               WHERE av.attestation_id = a.id AND av.validator_role = 'responsable_rh') as hr_validation
+       FROM demande_attestation a
+       JOIN employes e ON a.employe_id = e.id
+       JOIN type_attestation t ON a.type_id = t.id
+       ORDER BY a.date_demande DESC`
+    );
+    
+    // Parse the validations JSON for each attestation
+    const formattedAttestations = attestations.map(att => {
+      let managerValidation = null;
+      let hrValidation = null;
+      
+      if (att.manager_validation) {
+        try {
+          managerValidation = JSON.parse(att.manager_validation);
+        } catch (e) {
+          console.error('Error parsing manager validation:', e);
+        }
+      }
+      
+      if (att.hr_validation) {
+        try {
+          hrValidation = JSON.parse(att.hr_validation);
+        } catch (e) {
+          console.error('Error parsing HR validation:', e);
+        }
+      }
+      
+      return {
+        ...att,
+        manager_validation: managerValidation,
+        hr_validation: hrValidation
+      };
+    });
+    
+    res.json(formattedAttestations);
+  } catch (error) {
+    console.error('Error fetching all attestations:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get a specific attestation request by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -259,17 +333,6 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching attestation details:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get all attestation types
-router.get('/types/all', async (req, res) => {
-  try {
-    const [types] = await pool.query('SELECT * FROM type_attestation ORDER BY intitule');
-    res.json(types);
-  } catch (error) {
-    console.error('Error fetching attestation types:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

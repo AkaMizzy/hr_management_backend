@@ -205,24 +205,51 @@ router.get('/hr', async (req, res) => {
   }
 });
 
+// Get all leave types
+router.get('/types/all', async (req, res) => {
+  try {
+    const [types] = await pool.query('SELECT * FROM type_conge ORDER BY intitule');
+    res.json(types);
+  } catch (error) {
+    console.error('Error fetching leave types:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get all leave requests (RH only)
+router.get('/all', async (req, res) => {
+  try {
+    // Fetch all leave requests with employee information
+    const [leaves] = await pool.query(`
+      SELECT c.*, 
+             e.nom as employe_nom, 
+             e.prenom as employe_prenom,
+             e.email as employe_email,
+             t.intitule as type_intitule
+      FROM demande_conge c
+      JOIN employes e ON c.id_employe = e.id
+      LEFT JOIN type_conge t ON c.type_id = t.id
+      ORDER BY c.date_debut DESC
+    `);
+    
+    res.json(leaves);
+  } catch (error) {
+    console.error('Error fetching all leave requests:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get a specific leave request by ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
+    // First get the basic leave request info
     const [conges] = await pool.query(
       `SELECT c.*, 
               t.intitule as type_intitule,
               e.nom as employe_nom, 
-              e.prenom as employe_prenom,
-              (SELECT JSON_ARRAYAGG(
-                  JSON_OBJECT('id', cv.id,
-                             'validator_role', cv.validator_role, 
-                             'is_approved', cv.is_approved, 
-                             'justifier', cv.justifier, 
-                             'annulable', cv.annulable))
-               FROM conge_validations cv 
-               WHERE cv.id_demande_conge = c.id) as validations
+              e.prenom as employe_prenom
        FROM demande_conge c
        JOIN employes e ON c.id_employe = e.id
        JOIN type_conge t ON c.type_id = t.id
@@ -234,35 +261,21 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Leave request not found' });
     }
     
-    // Parse the validations JSON
-    const conge = conges[0];
-    let parsedValidations = [];
+    // Get validations separately
+    const [validations] = await pool.query(
+      `SELECT id, validator_role, is_approved, justifier, annulable
+       FROM conge_validations
+       WHERE id_demande_conge = ?`,
+      [id]
+    );
     
-    if (conge.validations) {
-      try {
-        parsedValidations = JSON.parse(conge.validations);
-      } catch (e) {
-        console.error('Error parsing validations:', e);
-      }
-    }
-    
+    // Return combined result
     res.json({
-      ...conge,
-      validations: parsedValidations || []
+      ...conges[0],
+      validations: validations || []
     });
   } catch (error) {
     console.error('Error fetching leave request details:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get all leave types
-router.get('/types/all', async (req, res) => {
-  try {
-    const [types] = await pool.query('SELECT * FROM type_conge ORDER BY intitule');
-    res.json(types);
-  } catch (error) {
-    console.error('Error fetching leave types:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

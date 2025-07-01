@@ -39,6 +39,29 @@ router.get('/types', async (req, res) => {
   }
 });
 
+// Get all expense reports (RH only)
+router.get('/all', async (req, res) => {
+  try {
+    // Fetch all expense reports with employee information
+    const [expenses] = await pool.query(`
+      SELECT nf.*, 
+             t.intitule as type_nom,
+             e.nom as employe_nom, 
+             e.prenom as employe_prenom,
+             e.email as employe_email
+      FROM demande_note_frais nf
+      JOIN employes e ON nf.id_employe = e.id
+      JOIN type_note_frais t ON nf.type_id = t.id
+      ORDER BY nf.date_frais DESC
+    `);
+    
+    res.json(expenses);
+  } catch (error) {
+    console.error('Error fetching all expense reports:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get all expense requests for an employee
 router.get('/employee/:employeId', async (req, res) => {
   try {

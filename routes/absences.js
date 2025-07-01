@@ -199,23 +199,37 @@ router.get('/hr', async (req, res) => {
   }
 });
 
+// Get all absence requests (RH only)
+router.get('/all', async (req, res) => {
+  try {
+    // Fetch all absence requests with employee information
+    const [absences] = await pool.query(`
+      SELECT a.*, 
+             e.nom as employe_nom, 
+             e.prenom as employe_prenom,
+             e.email as employe_email
+      FROM demande_absence a
+      JOIN employes e ON a.id_employe = e.id
+      ORDER BY a.date DESC
+    `);
+    
+    res.json(absences);
+  } catch (error) {
+    console.error('Error fetching all absence requests:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get a specific absence request by ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
+    // First get the basic absence request info
     const [absences] = await pool.query(
       `SELECT a.*, 
               e.nom as employe_nom, 
-              e.prenom as employe_prenom,
-              (SELECT JSON_ARRAYAGG(
-                  JSON_OBJECT('id', av.id,
-                             'validator_role', av.validator_role, 
-                             'is_approved', av.is_approved, 
-                             'justifier', av.justifier, 
-                             'annulable', av.annulable))
-               FROM absence_validations av 
-               WHERE av.id_demande_absence = a.id) as validations
+              e.prenom as employe_prenom
        FROM demande_absence a
        JOIN employes e ON a.id_employe = e.id
        WHERE a.id = ?`,
@@ -226,21 +240,18 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Absence request not found' });
     }
     
-    // Parse the validations JSONx
-    const absence = absences[0];
-    let parsedValidations = [];
+    // Get validations separately
+    const [validations] = await pool.query(
+      `SELECT id, validator_role, is_approved, justifier, annulable
+       FROM absence_validations
+       WHERE id_demande_absence = ?`,
+      [id]
+    );
     
-    if (absence.validations) {
-      try {
-        parsedValidations = JSON.parse(absence.validations);
-      } catch (e) {
-        console.error('Error parsing validations:', e);
-      }
-    }
-    
+    // Return combined result
     res.json({
-      ...absence,
-      validations: parsedValidations || []
+      ...absences[0],
+      validations: validations || []
     });
   } catch (error) {
     console.error('Error fetching absence details:', error);
