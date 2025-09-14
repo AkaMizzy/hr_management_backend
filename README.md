@@ -1,7 +1,6 @@
 # HR Management System - Backend API
 
-Simple backend API for HR Management System, providing basic authentication functionality.
-
+backend API for HR Management System
 ## Setup
 
 1. Install dependencies:

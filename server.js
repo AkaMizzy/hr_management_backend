@@ -16,7 +16,7 @@ const absencesRoutes = require('./routes/absences');
 const congesRoutes = require('./routes/conges');
 const noteFraisRoutes = require('./routes/note_frais');
 const paieRoutes = require('./routes/paie');
-const { testConnection } = require('./config/db');
+const { testConnection } = require('./config/db'); 
 
 dotenv.config();
 
@@ -30,7 +30,7 @@ app.use(express.urlencoded({ extended: true }));
 
 testConnection();
 
-// API routes
+
 app.use('/api/auth', authRoutes);
 app.use('/api/entites', entitesRoutes);
 app.use('/api/employes', employesRoutes);
@@ -45,7 +45,6 @@ app.use('/api/conges', congesRoutes);
 app.use('/api/note-frais', noteFraisRoutes);
 app.use('/api/paie', paieRoutes);
 
-// Serve static files from uploads directory for document viewing
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.get('/', (req, res) => {
